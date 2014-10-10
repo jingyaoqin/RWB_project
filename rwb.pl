@@ -370,23 +370,37 @@ if ($action eq "base") {
   # User mods
   #
   #
-my %choosedata = (
-	'committee' => 'value1',
-	'candidate' => 'value2',
-	'individual' => 'value3',
-	'opinions' => 'value4',
-);
-
+# get dymatic cyclelist from database
+my @dbcycles;
+eval {@dbcycles = ExecSQL($dbuser, $dbpasswd, "select distinct cycle from cs339.committee_master order by cycle","COL");};
+print @dbcycles;
 print start_form(-name=>'checkboxgroup'),
+      p('Please choose cycles:'),
+        checkbox_group(
+	-name=>'cyclecheckbox',
+	-values => \@dbcycles,
+	),
+	submit,
+	end_form;
+
+#my %choosedata = (
+#	'committee' => 'value1',
+#	'candidate' => 'value2',
+#	'individual' => 'value3',
+#	'opinions' => 'value4',
+#);
+my @choosedata = ('committee','candidate','individual','opinions');
+
+print start_form(-name=>'data'),
       p('Please choose which data you want to see:'),
         checkbox_group(
 	-name=>'checkboxgroup',
-	-values => [keys %choosedata],
-#['committee','candidate','individual','opinions'],
+	-values => \@choosedata,
 	-rows =>4,
 	),
 	submit,
 	  end_form;
+
   if ($user eq "anon") {
     print "<p>You are anonymous, but you can also <a href=\"rwb.pl?act=login\">login</a></p>";
   } else {
@@ -435,8 +449,13 @@ if ($action eq "near") {
   my $longsw = param("longsw");
   my $whatparam = param("what");
   my $format = param("format");
-  my $cycle = param("cycle");
   my %what;
+  my @checkboxgroup = param("checkboxgroup");
+  my @cyclelist = param("cyclecheckbox"); 
+#print "<p>$checkboxgroup[0]\n$checkboxgroup[1]</p>";
+  my $inputdata = join(',', @checkboxgroup);
+  my $cycle = join(',', @cyclelist);
+#print "<p>$inputdata</p>";
   
   $format = "table" if !defined($format);
   $cycle = "1112" if !defined($cycle);
@@ -499,7 +518,7 @@ if ($action eq "invite-user") {
 	print h2("You do not have the required permissions to invite users");
 	}else{
 	my @permissions;
-	eval { @permissions = ExecSQL($dbuser, $dbpasswd, "select action from rwb_permissions where 		name=?","COL",$user);};
+	eval { @permissions = ExecSQL($dbuser, $dbpasswd, "select action from rwb_permissions where name=?","COL",$user);};
 	if (!$run){
 		print start_form(-name=>'InviteUser'),
 		h2('Invite User'),
@@ -717,15 +736,73 @@ if ($action eq "revoke-perm-user") {
 # User Register
 #
 
+
 if ($action eq "register") { 
-	my $checklink ;
+	my @checklink ;
 	my $rid = param('rid');
-  eval { 
-   $checklink = ExecSQL($dbuser, $dbpasswd, "select linkclicked from new_users where randomid = ?",undef,$rid);
-  };
-#my $checked = $checklink[0];
-	
-  print "<p>$checklink\n$rid</p>";
+	eval { @checklink = ExecSQL($dbuser, $dbpasswd, "select linkclicked from new_users where randomid = ?","COL",$rid);};
+	if ($checklink[0])
+	{
+	print "<p>This link was used before</p>";
+	}else{
+		eval { ExecSQL($dbuser, $dbpasswd, "update new_users set linkclicked = 1 where randomid = ?","COL",$rid);};
+		# Generate the register form.
+		if (!$run) { 
+ 	   	print start_form(-name=>'User_Register'),
+		h2('User Register: (Password must be at least 8 characters long)'),
+		  "Name: ", textfield(-name=>'name'),p,
+		  "Password: ", textfield(-name=>'password'),p,
+			hidden(-name=>'run',-default=>['1']),
+			  hidden(-name=>'act',-default=>['register']),
+				hidden(-name=>'randomid',-default=>[$rid]),
+			  submit,
+			    end_form,
+			      hr;
+		}else{
+			my $name=param('name');
+			my $password=param('password');
+			my $randomid = param('randomid');
+			my @email;
+#print "$name\n$password\n$randomid";
+			my @referer;
+			my @permissions;
+			my @permsplit;
+#			my $error=UserRegister($randomid,$name,$password);
+#			if ($error) { 
+#				print "Can't add  user because: $error";
+#				} else {
+#					print "User add successfully!";
+#					}
+
+			eval { @email = ExecSQL($dbuser, $dbpasswd, "select email from new_users where randomid = ? ","COL",$randomid);};
+
+			eval { @referer = ExecSQL($dbuser, $dbpasswd, "select referer from new_users where randomid = ? ","COL",$randomid);};
+			eval { @permissions = ExecSQL($dbuser, $dbpasswd, "select permissions from new_users where randomid = ? ","COL",$randomid);};
+			my $uemail = $email[0];
+			my $ureferer = $referer[0];
+			@permsplit = split /,/,$permissions[0] ;
+print "$permissions[0]";
+print "@permsplit";
+			my $error=UserAdd($name,$password,$uemail,$ureferer);
+			if ($error) { 
+				print "Can't add  user because: $error";
+				} else {
+					foreach  my $r (@permsplit) {
+						print "<p> $r\n <p>";
+
+
+						my $permerror= GiveUserPerm($name,$r);
+						if ($permerror) { 
+							print "Can't give  user permissions: $error";
+							} else {
+								print "User add permission $r successfully!";
+								}
+						}
+					print "User register successfully!";
+					}
+		}
+  }
+  print "<p><a href=\"rwb.pl?act=base&run=1\">Return</a></p>";
 }
 
 
@@ -786,7 +863,7 @@ sub Committees {
   my ($latne,$longne,$latsw,$longsw,$cycle,$format) = @_;
   my @rows;
   eval { 
-    @rows = ExecSQL($dbuser, $dbpasswd, "select latitude, longitude, cmte_nm, cmte_pty_affiliation, cmte_st1, cmte_st2, cmte_city, cmte_st, cmte_zip from cs339.committee_master natural join cs339.cmte_id_to_geo where cycle=? and latitude>? and latitude<? and longitude>? and longitude<?",undef,$cycle,$latsw,$latne,$longsw,$longne);
+    @rows = ExecSQL($dbuser, $dbpasswd, "select latitude, longitude, cmte_nm, cmte_pty_affiliation, cmte_st1, cmte_st2, cmte_city, cmte_st, cmte_zip from cs339.committee_master natural join cs339.cmte_id_to_geo where cycle in ? and latitude>? and latitude<? and longitude>? and longitude<?",undef,$cycle,$latsw,$latne,$longsw,$longne);
   };
   
   if ($@) { 
@@ -812,7 +889,7 @@ sub Candidates {
   my ($latne,$longne,$latsw,$longsw,$cycle,$format) = @_;
   my @rows;
   eval { 
-    @rows = ExecSQL($dbuser, $dbpasswd, "select latitude, longitude, cand_name, cand_pty_affiliation, cand_st1, cand_st2, cand_city, cand_st, cand_zip from cs339.candidate_master natural join cs339.cand_id_to_geo where cycle=? and latitude>? and latitude<? and longitude>? and longitude<?",undef,$cycle,$latsw,$latne,$longsw,$longne);
+    @rows = ExecSQL($dbuser, $dbpasswd, "select latitude, longitude, cand_name, cand_pty_affiliation, cand_st1, cand_st2, cand_city, cand_st, cand_zip from cs339.candidate_master natural join cs339.cand_id_to_geo where cycle in ? and latitude>? and latitude<? and longitude>? and longitude<?",undef,$cycle,$latsw,$latne,$longsw,$longne);
   };
   
   if ($@) { 
@@ -841,7 +918,7 @@ sub Individuals {
   my ($latne,$longne,$latsw,$longsw,$cycle,$format) = @_;
   my @rows;
   eval { 
-    @rows = ExecSQL($dbuser, $dbpasswd, "select latitude, longitude, name, city, state, zip_code, employer, transaction_amnt from cs339.individual natural join cs339.ind_to_geo where cycle=? and latitude>? and latitude<? and longitude>? and longitude<?",undef,$cycle,$latsw,$latne,$longsw,$longne);
+    @rows = ExecSQL($dbuser, $dbpasswd, "select latitude, longitude, name, city, state, zip_code, employer, transaction_amnt from cs339.individual natural join cs339.ind_to_geo where cycle in ?  and latitude>? and latitude<? and longitude>? and longitude<?",undef,$cycle,$latsw,$latne,$longsw,$longne);
   };
   
   if ($@) { 
@@ -1212,26 +1289,24 @@ sub ExecSQL {
   $dbh->disconnect();
   return @ret;
 }
+
+
 sub UserInvite{
-	my $randomid = rand(10000);
+	my $randomid = rand(10000000);
 	#create a one-time-use URL:
 	my $invitelink = "http://murphy.wot.ece.northwestern.edu/~jqz219/rwb/rwb.pl?act=register&&rid=$randomid";
 	eval { ExecSQL($dbuser,$dbpasswd, "insert into new_users (randomid,email,referer,permissions) values (?,?,?,?)",undef,$randomid,$_[0],$user,$_[1]);};
 	my $subject = 'RWB_invite_users';
 	my $address = $_[0];
-	my $content = "This is ...\n\n";
-	open (MAIL, "| mail -s $subject $address");
-	print MAIL $_[0];
-	print MAIL $_[1];
-	print MAIL $randomid;
-	print MAIL $user;
+	my $content = "$user invite you to join RWB, please click the link below, and finish the registration:";
+	open (MAIL, "| mail -s $subject $address");;
+	print MAIL "$content\n";
 	print MAIL $invitelink;
 	close (MAIL);
   	return 0;
 }
 
-sub UserRegister{
-}
+
 
 
 ######################################################################
