@@ -380,17 +380,22 @@ print start_form(-name=>'checkboxgroup'),
 	-name=>'cyclecheckbox',
 	-values => \@dbcycles,
 	),
-	submit,
-	end_form;
+	hidden(-name=>'act',-default=>['base']),
+	      hidden(-name=>'run',default=>['1']),
 
-#my %choosedata = (
-#	'committee' => 'value1',
-#	'candidate' => 'value2',
-#	'individual' => 'value3',
-#	'opinions' => 'value4',
-#);
-my @choosedata = ('committee','candidate','individual','opinions');
+		submit,
+		  end_form;
+	
 
+
+my @choosedata1 = ('committee','candidate','individual','opinions');
+my @choosedata2 = ('committee','candidate','individual');
+my @choosedata;
+if (!UserCan($user,"give-opinion-data")){
+	@choosedata = @choosedata2;
+	}else{
+	@choosedata = @choosedata1;
+	}
 print start_form(-name=>'data'),
       p('Please choose which data you want to see:'),
         checkbox_group(
@@ -400,6 +405,9 @@ print start_form(-name=>'data'),
 	),
 	submit,
 	  end_form;
+
+
+
 
   if ($user eq "anon") {
     print "<p>You are anonymous, but you can also <a href=\"rwb.pl?act=login\">login</a></p>";
@@ -427,6 +435,7 @@ print start_form(-name=>'data'),
 
 }
 
+
 #
 #
 # NEAR
@@ -452,10 +461,14 @@ if ($action eq "near") {
   my %what;
   my @checkboxgroup = param("checkboxgroup");
   my @cyclelist = param("cyclecheckbox"); 
-#print "<p>$checkboxgroup[0]\n$checkboxgroup[1]</p>";
+print "<h2>HELLO $cyclelist[0]</h2>";
+print "<h2>HELLO @checkboxgroup</h2>";
+  my $cycle = $cyclelist[0];
   my $inputdata = join(',', @checkboxgroup);
-  my $cycle = join(',', @cyclelist);
-#print "<p>$inputdata</p>";
+
+ # my $cycle = join(',', map {qq/'$_'/} @cyclelist);
+print "<p>$inputdata</p>";
+  
   
   $format = "table" if !defined($format);
   $cycle = "1112" if !defined($cycle);
@@ -475,6 +488,7 @@ if ($action eq "near") {
     if (!$error) {
       if ($format eq "table") { 
 	print "<h2>Nearby committees</h2>$str";
+
       } else {
 	print $str;
       }
@@ -501,6 +515,9 @@ if ($action eq "near") {
     }
   }
   if ($what{opinions}) {
+#	if (!UserCan($user,"query-opinion-data")){
+#print "<h2>You can not query opinion data</h2>";
+#}
     my ($str,$error) = Opinions($latne,$longne,$latsw,$longsw,$cycle,$format);
     if (!$error) {
       if ($format eq "table") { 
@@ -553,7 +570,42 @@ print "<p><a href=\"rwb.pl?act=base&run=1\">Return</a></p>";
 }
 
 if ($action eq "give-opinion-data") { 
-  print h2("Giving Location Opinion Data Is Unimplemented");
+	if (!UserCan($user,"give-opinion-data")){
+	print h2("You do not have the required permissions to give opinions");
+	}else{
+
+	if (!$run){
+		print start_form(-name=>'giveOpinion'),
+		h2('Please give your political opinion:'),
+       		radio_group(
+			-name=>'opinion_choice',
+			-values => ['Red','Blue','Neutral'],
+		),
+ 		hidden(-name=>'run',-default=>['1']),
+		hidden(-name=>'act',-default=>['give-opinion-data']),
+		submit,
+		end_form,
+	
+	}else {
+		my $opinion_choice=param('opinion_choice');
+		my $color = 1;
+		use Switch;
+		switch($opinion_choice){
+			case "Red"  {$color = -1;}
+			case "Blue"  {$color = 1;}
+			case "Neutral"  {$color = 0;}
+		}
+		my $error;
+     		 $error=GiveOpinions($color, $user);
+   		   if ($error) { 
+			print "Opinion Submitted";
+#print "$color"
+ 		     } else {
+			print "Can not give political opinions, because:$error\n";
+      }
+	}	
+}
+print "<p><a href=\"rwb.pl?act=base&run=1\">Return</a></p>";
 }
 
 if ($action eq "give-cs-ind-data") { 
@@ -863,7 +915,7 @@ sub Committees {
   my ($latne,$longne,$latsw,$longsw,$cycle,$format) = @_;
   my @rows;
   eval { 
-    @rows = ExecSQL($dbuser, $dbpasswd, "select latitude, longitude, cmte_nm, cmte_pty_affiliation, cmte_st1, cmte_st2, cmte_city, cmte_st, cmte_zip from cs339.committee_master natural join cs339.cmte_id_to_geo where cycle in ? and latitude>? and latitude<? and longitude>? and longitude<?",undef,$cycle,$latsw,$latne,$longsw,$longne);
+    @rows = ExecSQL($dbuser, $dbpasswd, "select latitude, longitude, cmte_nm, cmte_pty_affiliation, cmte_st1, cmte_st2, cmte_city, cmte_st, cmte_zip from cs339.committee_master natural join cs339.cmte_id_to_geo where cycle IN (?) and latitude>? and latitude<? and longitude>? and longitude<?",undef,$cycle,$latsw,$latne,$longsw,$longne);
   };
   
   if ($@) { 
@@ -889,7 +941,7 @@ sub Candidates {
   my ($latne,$longne,$latsw,$longsw,$cycle,$format) = @_;
   my @rows;
   eval { 
-    @rows = ExecSQL($dbuser, $dbpasswd, "select latitude, longitude, cand_name, cand_pty_affiliation, cand_st1, cand_st2, cand_city, cand_st, cand_zip from cs339.candidate_master natural join cs339.cand_id_to_geo where cycle in ? and latitude>? and latitude<? and longitude>? and longitude<?",undef,$cycle,$latsw,$latne,$longsw,$longne);
+    @rows = ExecSQL($dbuser, $dbpasswd, "select latitude, longitude, cand_name, cand_pty_affiliation, cand_st1, cand_st2, cand_city, cand_st, cand_zip from cs339.candidate_master natural join cs339.cand_id_to_geo where cycle IN (?) and latitude>? and latitude<? and longitude>? and longitude<?",undef,$cycle,$latsw,$latne,$longsw,$longne);
   };
   
   if ($@) { 
@@ -918,7 +970,7 @@ sub Individuals {
   my ($latne,$longne,$latsw,$longsw,$cycle,$format) = @_;
   my @rows;
   eval { 
-    @rows = ExecSQL($dbuser, $dbpasswd, "select latitude, longitude, name, city, state, zip_code, employer, transaction_amnt from cs339.individual natural join cs339.ind_to_geo where cycle in ?  and latitude>? and latitude<? and longitude>? and longitude<?",undef,$cycle,$latsw,$latne,$longsw,$longne);
+    @rows = ExecSQL($dbuser, $dbpasswd, "select latitude, longitude, name, city, state, zip_code, employer, transaction_amnt from cs339.individual natural join cs339.ind_to_geo where cycle IN (?)  and latitude>? and latitude<? and longitude>? and longitude<?",undef,$cycle,$latsw,$latne,$longsw,$longne);
   };
   
   if ($@) { 
@@ -1304,6 +1356,15 @@ sub UserInvite{
 	print MAIL $invitelink;
 	close (MAIL);
   	return 0;
+}
+
+sub GiveOpinions{
+	my $user = param('user');
+	my $latne = param("latne");
+	my $longne = param("longne");
+	eval { ExecSQL($dbuser,$dbpasswd, "insert into rwb_opinions (submitter, color, latitude, longitude) values (?,?,?,?)",undef,$_[1],$_[0],$latne,$longne) ;};
+#eval { ExecSQL($dbuser,$dbpasswd, "insert into rwb_opinions (submitter, color, latitude, longitude) values (?,?,?,?)",undef,$_[1],$_[0],42,87) ;};
+	return 1;
 }
 
 
