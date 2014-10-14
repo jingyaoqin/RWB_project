@@ -120,6 +120,10 @@ my $logincomplain=0;
 my $action;
 my $run;
 
+my $dem_money_total = 0;
+my $rep_money_total = 0;
+my $neu_money_total = 0;
+
 
 if (defined(param("act"))) { 
   $action=param("act");
@@ -373,38 +377,37 @@ if ($action eq "base") {
 # get dymatic cyclelist from database
 my @dbcycles;
 eval {@dbcycles = ExecSQL($dbuser, $dbpasswd, "select distinct cycle from cs339.committee_master order by cycle","COL");};
-print @dbcycles;
-print start_form(-name=>'checkboxgroup'),
-      p('Please choose cycles:'),
-        checkbox_group(
-	-name=>'cyclecheckbox',
-	-values => \@dbcycles,
-	),
-	hidden(-name=>'act',-default=>['base']),
-	      hidden(-name=>'run',default=>['1']),
-
-		submit,
-		  end_form;
-	
-
-
-my @choosedata1 = ('committee','candidate','individual','opinions');
-my @choosedata2 = ('committee','candidate','individual');
+my @choosedata1 = ('committees','candidates','individuals','opinions');
+my @choosedata2 = ('committees','candidates','individuals');
 my @choosedata;
 if (!UserCan($user,"give-opinion-data")){
 	@choosedata = @choosedata2;
 	}else{
 	@choosedata = @choosedata1;
 	}
-print start_form(-name=>'data'),
-      p('Please choose which data you want to see:'),
+#print @dbcycles;
+print start_form(-name=>'dataform'),
+      p('Please choose cycles:'),
         checkbox_group(
-	-name=>'checkboxgroup',
+	-name=>'cyclecheckbox',
+	-values => \@dbcycles,
+	-id=> "cycleid",
+	),
+ 	 p('Please choose which data you want to see:'),
+        checkbox_group(
+	-name=>'datacheckbox',
+	-id=> "dataid",
 	-values => \@choosedata,
 	-rows =>4,
 	),
-	submit,
-	  end_form;
+	
+	hidden(-name=>'act',-default=>['base']),
+	      hidden(-name=>'run',default=>['1']),
+		submit,
+		  end_form;
+	
+
+
 
 
 
@@ -458,20 +461,13 @@ if ($action eq "near") {
   my $longsw = param("longsw");
   my $whatparam = param("what");
   my $format = param("format");
+  my $cycle = param("cycle");
   my %what;
-  my @checkboxgroup = param("checkboxgroup");
-  my @cyclelist = param("cyclecheckbox"); 
-print "<h2>HELLO $cyclelist[0]</h2>";
-print "<h2>HELLO @checkboxgroup</h2>";
-  my $cycle = $cyclelist[0];
-  my $inputdata = join(',', @checkboxgroup);
 
- # my $cycle = join(',', map {qq/'$_'/} @cyclelist);
-print "<p>$inputdata</p>";
-  
-  
+print "<h2>HELLO $cycle\n$whatparam</h2>";
+
   $format = "table" if !defined($format);
-  $cycle = "1112" if !defined($cycle);
+  $cycle = "'1314','1112'" if !defined($cycle);
 
   if (!defined($whatparam) || $whatparam eq "all") { 
     %what = ( committees => 1, 
@@ -528,6 +524,15 @@ print "<p>$inputdata</p>";
     }
   }
 }
+ my $color = 0;
+if ($dem_money_total>$rep_money_total&&$dem_money_total>$rep_money_total){
+	$color = -1;
+	}
+if ($rep_money_total>$dem_money_total&&$rep_money_total>$neu_money_total){
+	$color = 1;
+	}
+print "$color\n";
+print "<p id = color_choice>$color</p>";
 
 
 if ($action eq "invite-user") { 
@@ -914,10 +919,42 @@ print end_html;
 sub Committees {
   my ($latne,$longne,$latsw,$longsw,$cycle,$format) = @_;
   my @rows;
+  my @dem_money;
+  my @rep_money;
+  my @neu_money;
+  my $count = 0;
+  my $countmin = 50;
   eval { 
-    @rows = ExecSQL($dbuser, $dbpasswd, "select latitude, longitude, cmte_nm, cmte_pty_affiliation, cmte_st1, cmte_st2, cmte_city, cmte_st, cmte_zip from cs339.committee_master natural join cs339.cmte_id_to_geo where cycle IN (?) and latitude>? and latitude<? and longitude>? and longitude<?",undef,$cycle,$latsw,$latne,$longsw,$longne);
+    @rows = ExecSQL($dbuser, $dbpasswd, "select latitude, longitude, cmte_nm, cmte_pty_affiliation, cmte_st1, cmte_st2, cmte_city, cmte_st, cmte_zip from cs339.committee_master natural join cs339.cmte_id_to_geo where cycle in ($cycle) and latitude>? and latitude<? and longitude>? and longitude<?",undef,$latsw,$latne,$longsw,$longne);
   };
-  
+
+
+while($count < $countmin){
+
+ 	 eval {    @dem_money = ExecSQL($dbuser, $dbpasswd, "select sum (transaction_amnt), count(transaction_amnt) from cs339.committee_master natural join cs339.cmte_id_to_geo natural join cs339.comm_to_comm where cycle in ($cycle) and latitude>? and latitude<? and longitude>? and longitude<? and cmte_pty_affiliation in ('DEM','dem','d','D','Dem')","ROW",$latsw,$latne,$longsw,$longne);
+ 	 };
+ 	 eval { @rep_money = ExecSQL($dbuser, $dbpasswd, "select sum (transaction_amnt) , count(transaction_amnt) from cs339.committee_master natural join cs339.cmte_id_to_geo natural join 		cs339.comm_to_comm where cycle in ($cycle) and latitude>? and latitude<? and longitude>? and longitude<? and cmte_pty_affiliation in ('REP','rep','r','R','Rep')","ROW",$latsw,$latne,$longsw,$longne);
+	 };
+  	eval { @neu_money = ExecSQL($dbuser, $dbpasswd, "select sum (transaction_amnt) , count(transaction_amnt) from cs339.committee_master natural join cs339.cmte_id_to_geo natural join cs339.comm_to_comm where cycle in ($cycle) and latitude>? and latitude<? and longitude>? and longitude<? and cmte_pty_affiliation not in ('DEM','dem','d','D','Dem','REP','rep','r','R','Rep')","ROW",$latsw,$latne,$longsw,$longne);
+ 	 };
+	$count = $dem_money[1]+$rep_money[1]+$neu_money[1];	
+	$latsw -= 0.2;
+	$latne += 0.2;
+	$longsw -= 0.2;
+	$longne += 0.2;
+}
+	my $amount = $dem_money[0]+$rep_money[0]+$neu_money[0];
+	print "<h3>You chose 'Committees': The amount of money involved by the committees in the current view is : \$$amount\n,including \$$dem_money[0]\nfor Democratic Party,\$$rep_money[0]\nfor Republican Party, and $neu_money[0]\nfor nuetral</h3>";
+
+print "$dem_money[0]\n";
+print "$rep_money[0]\n";
+print "$neu_money[0]\n";
+$dem_money_total += $dem_money[0];
+$rep_money_total += $rep_money[0];
+$neu_money_total += $neu_money[0];
+
+
+
   if ($@) { 
     return (undef,$@);
   } else {
@@ -929,6 +966,7 @@ sub Committees {
       return (MakeRaw("committee_data","2D",@rows),$@);
     }
   }
+
 }
 
 
@@ -941,7 +979,7 @@ sub Candidates {
   my ($latne,$longne,$latsw,$longsw,$cycle,$format) = @_;
   my @rows;
   eval { 
-    @rows = ExecSQL($dbuser, $dbpasswd, "select latitude, longitude, cand_name, cand_pty_affiliation, cand_st1, cand_st2, cand_city, cand_st, cand_zip from cs339.candidate_master natural join cs339.cand_id_to_geo where cycle IN (?) and latitude>? and latitude<? and longitude>? and longitude<?",undef,$cycle,$latsw,$latne,$longsw,$longne);
+    @rows = ExecSQL($dbuser, $dbpasswd, "select latitude, longitude, cand_name, cand_pty_affiliation, cand_st1, cand_st2, cand_city, cand_st, cand_zip from cs339.candidate_master natural join cs339.cand_id_to_geo where cycle IN ($cycle) and latitude>? and latitude<? and longitude>? and longitude<?",undef,$latsw,$latne,$longsw,$longne);
   };
   
   if ($@) { 
@@ -967,12 +1005,37 @@ sub Candidates {
 # $error false on success, error string on failure
 #
 sub Individuals {
+  my @dem_money;
+  my @rep_money;
+  my @neu_money;
+  my $count = 0;
+  my $countmin = 50;
   my ($latne,$longne,$latsw,$longsw,$cycle,$format) = @_;
   my @rows;
   eval { 
-    @rows = ExecSQL($dbuser, $dbpasswd, "select latitude, longitude, name, city, state, zip_code, employer, transaction_amnt from cs339.individual natural join cs339.ind_to_geo where cycle IN (?)  and latitude>? and latitude<? and longitude>? and longitude<?",undef,$cycle,$latsw,$latne,$longsw,$longne);
+    @rows = ExecSQL($dbuser, $dbpasswd, "select latitude, longitude, name, city, state, zip_code, employer, transaction_amnt from cs339.individual natural join cs339.ind_to_geo where cycle IN ($cycle)  and latitude>? and latitude<? and longitude>? and longitude<?",undef,$latsw,$latne,$longsw,$longne);
   };
-  
+  while($count < $countmin){
+
+ 	 eval {    @dem_money = ExecSQL($dbuser, $dbpasswd, "select sum(transaction_amnt), count(transaction_amnt) from cs339.individual natural join cs339.cmte_id_to_geo natural join cs339.committee_master where cycle in ($cycle) and latitude>? and latitude<? and longitude>? and longitude<? and cmte_pty_affiliation in ('DEM','dem','d','D','Dem')","ROW",$latsw,$latne,$longsw,$longne);
+ 	 };
+ 	 eval { @rep_money = ExecSQL($dbuser, $dbpasswd, "select sum (transaction_amnt) , count(transaction_amnt) from cs339.individual natural join cs339.cmte_id_to_geo natural join cs339.committee_master where cycle in ($cycle) and latitude>? and latitude<? and longitude>? and longitude<? and cmte_pty_affiliation in ('REP','rep','r','R','Rep')","ROW",$latsw,$latne,$longsw,$longne);
+	 };
+  	eval { @neu_money = ExecSQL($dbuser, $dbpasswd, "select sum (transaction_amnt) , count(transaction_amnt) from cs339.individual natural join cs339.cmte_id_to_geo natural join cs339.committee_master where cycle in ($cycle) and latitude>? and latitude<? and longitude>? and longitude<? and cmte_pty_affiliation not in ('DEM','dem','d','D','Dem','REP','rep','r','R','Rep')","ROW",$latsw,$latne,$longsw,$longne);
+ 	 };
+	$count = $dem_money[1]+$rep_money[1]+$neu_money[1];	
+	$latsw -= 0.1;
+	$latne += 0.1;
+	$longsw -= 0.1;
+	$longne += 0.1;
+}
+	my $amount = $dem_money[0]+$rep_money[0]+$neu_money[0];
+	print "<h3>You chose 'Individual': The amount of money involved by the individuals in the current view is : \$$amount\n,including \$$dem_money[0]\nfor Democratic Party,\$$rep_money[0]\nfor Republican Party, and $neu_money[0]\nfor nuetral</h3>";
+$dem_money_total += $dem_money[0];
+$rep_money_total += $rep_money[0];
+$neu_money_total += $neu_money[0];
+
+
   if ($@) { 
     return (undef,$@);
   } else {
@@ -997,9 +1060,13 @@ sub Opinions {
   my ($latne, $longne, $latsw, $longsw, $cycle,$format) = @_;
   my @rows;
   eval { 
-    @rows = ExecSQL($dbuser, $dbpasswd, "select latitude, longitude, color from rwb_opinions where latitude>? and latitude<? and longitude>? and longitude<?",undef,$latsw,$latne,$longsw,$longne);
+    @rows = ExecSQL($dbuser, $dbpasswd, "select color from rwb_opinions where latitude>? and latitude<? and longitude>? and longitude<?",undef,$latsw,$latne,$longsw,$longne);
   };
-  
+ my @color;
+  eval { 
+    @color = ExecSQL($dbuser, $dbpasswd, "select avg(color), stddev(color) from rwb_opinions where latitude>? and latitude<? and longitude>? and longitude<?","ROW",$latsw,$latne,$longsw,$longne);
+  };
+  print "$color[0]\n$color[1]";
   if ($@) { 
     return (undef,$@);
   } else {
